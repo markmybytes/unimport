@@ -9,7 +9,7 @@ import { findExports, findTypeExports, resolve as mllyResolve } from 'mlly'
 import { basename, dirname, join, normalize, parse as parsePath, resolve } from 'pathe'
 import pm from 'picomatch'
 import { camelCase } from 'scule'
-import { glob } from 'tinyglobby'
+import { glob, escapePath } from 'tinyglobby'
 
 // JavaScript reserved words and keywords that mlly's regex parser may
 // incorrectly capture as export names from declaration expressions.
@@ -118,8 +118,12 @@ export function normalizeScanDirs(dirs: (string | ScanDir)[], options?: ScanDirE
 
 export async function scanFilesFromDir(dir: ScanDir | ScanDir[], options?: ScanDirExportsOptions) {
   const dirGlobs = (Array.isArray(dir) ? dir : [dir]).map(i => i.glob)
+
+  // Escape globs before tinyglobby and picomatch to avoid pathe stripping backslashes
+  const escapedGlobs = dirGlobs.map(escapePath)
+
   const files = (await glob(
-    dirGlobs,
+    escapedGlobs,
     {
       absolute: true,
       cwd: options?.cwd || process.cwd(),
@@ -132,7 +136,7 @@ export async function scanFilesFromDir(dir: ScanDir | ScanDir[], options?: ScanD
 
   const fileFilter = options?.fileFilter || (() => true)
 
-  const indexOfDirs = (file: string) => dirGlobs.findIndex(glob => pm.isMatch(file, glob))
+  const indexOfDirs = (file: string) => escapedGlobs.findIndex(glob => pm.isMatch(file, glob))
   const fileSortByDirs = files.reduce((acc, file) => {
     const index = indexOfDirs(file)
     if (acc[index])
@@ -150,7 +154,7 @@ export async function scanDirExports(dirs: (string | ScanDir)[], options?: ScanD
   const files = await scanFilesFromDir(normalizedDirs, options)
 
   const includeTypesDirs = normalizedDirs.filter(dir => !dir.glob.startsWith('!') && dir.types)
-  const isIncludeTypes = (file: string) => includeTypesDirs.some(dir => pm.isMatch(file, dir.glob))
+  const isIncludeTypes = (file: string) => includeTypesDirs.some(dir => pm.isMatch(file, escapePath(dir.glob)))
 
   const imports = (await Promise.all(files.map(file => scanExports(file, isIncludeTypes(file))))).flat()
   const deduped = dedupeDtsExports(imports)
